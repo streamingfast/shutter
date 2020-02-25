@@ -29,6 +29,7 @@ func TestShutterTerminating(t *testing.T) {
 	s.Shutdown(nil)
 }
 
+
 func TestShutterTerminated(t *testing.T) {
 	a := 0
 	s := NewWithCallback(func(_ error) {
