@@ -8,33 +8,50 @@ import (
 type Shutter struct {
 	lock     sync.Mutex // shutdown lock
 
+	// the error is assigned before any channel (terminating & terminated)
+	// are closed. thus when calling `Err()` is *always* available.
+	err                 error
+	once                sync.Once
+
+	// terminating occurs when the Shutdown() function is called on the shutter. Is is an opportunity to clean up loose ends
+	// the terminating channel, is a signal to know that the process is shutting down
 	terminatingCh chan struct{}
+	terminatingFunc     []func(error)
+	terminatingFuncLock sync.Mutex
+
+	// terminated occurs when the Shutdown() function has been called and all the clean-up functions are completed. We can assume that
+	// we can kill the process now without any negative effects.
 	terminatedCh chan struct{}
-
-	//ch       chan struct{}
-	err      error
-	once     sync.Once
-	calls    []func(error)
-	callLock sync.Mutex
+	terminatedFunc     []func(error)
+	terminatedFuncLock sync.Mutex
 }
 
-func New() *Shutter {
+func New(opts ...Option) *Shutter {
 	s := &Shutter{
 		terminatingCh: make(chan struct{}),
 		terminatedCh:make(chan struct{}),
-		//ch: make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	return s
 }
 
-func NewWithCallback(f func(error)) *Shutter {
-	s := &Shutter{
-		terminatingCh: make(chan struct{}),
-		terminatedCh:make(chan struct{}),
-		//ch: make(chan struct{}),
+type Option = func(shutter *Shutter)
+
+
+// registers a function to be called on terminated
+func RegisterOnTerminated(f func(error)) Option {
+	return func(s *Shutter) {
+		s.OnTerminated(f)
 	}
-	s.OnShutdown(f)
-	return s
+}
+
+// registers a function to be called on terminating
+func RegisterOnTerminating(f func(error)) Option {
+	return func(s *Shutter) {
+		s.OnTerminating(f)
+	}
 }
 
 var ErrShutterWasAlreadyDown = errors.New("saferun was called on an already-shutdown shutter")
@@ -71,22 +88,26 @@ func (s *Shutter) Shutdown(err error) {
 	}
 
 	s.lock.Lock()
-	// assign s.err before closing channel, so `IsDown()` and `Done()`
-	// return when `Err()` is *always* available.
 	s.err = err
 	close(s.terminatingCh)
 	s.lock.Unlock()
 
-	s.callLock.Lock()
-	for _, call := range s.calls {
+	s.terminatingFuncLock.Lock()
+	for _, call := range s.terminatingFunc {
 		call(err)
 	}
-	s.callLock.Unlock()
+	s.terminatingFuncLock.Unlock()
 
 	s.lock.Lock()
 	// the err has been handle above thus it will be available
 	close(s.terminatedCh)
 	s.lock.Unlock()
+
+	s.terminatedFuncLock.Lock()
+	for _, call := range s.terminatedFunc {
+		call(err)
+	}
+	s.terminatedFuncLock.Unlock()
 }
 
 func (s *Shutter) Terminating() <-chan struct{} {
@@ -115,13 +136,22 @@ func (s *Shutter) IsTerminated() bool {
 	}
 }
 
-// OnShutdown registers an additional handler to be triggered on
-// `Shutdown()`. These calls will be blocking. It is unsafe to
-// register new callbacks in multiple go-routines.
-func (s *Shutter) OnShutdown(f func(error)) {
-	s.callLock.Lock()
-	s.calls = append(s.calls, f)
-	s.callLock.Unlock()
+// OnTerminating registers an additional handler to be triggered on
+// `Shutdown()`. These calls will be blocking and will
+// occur when the shutter is in the process of shutting down.
+func (s *Shutter) OnTerminating(f func(error)) {
+	s.terminatingFuncLock.Lock()
+	s.terminatingFunc = append(s.terminatingFunc, f)
+	s.terminatingFuncLock.Unlock()
+}
+
+// OnTerminated registers an additional handler to be triggered on
+// `Shutdown()`. These calls will be blocking and will
+// occur when the shutter has shutdown
+func (s *Shutter) OnTerminated(f func(error)) {
+	s.terminatedFuncLock.Lock()
+	s.terminatedFunc = append(s.terminatedFunc, f)
+	s.terminatedFuncLock.Unlock()
 }
 
 func (s *Shutter) Err() error {
