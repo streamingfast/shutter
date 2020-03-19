@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.4.0] - 2020-03-09
 
+### Changed
+
 * License changed to Apache 2.0
 
 * We now have post and pre hooks for termination: _Terminating_
