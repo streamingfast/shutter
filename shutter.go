@@ -54,6 +54,13 @@ func New(opts ...Option) *Shutter {
 type Option = func(shutter *Shutter)
 
 
+// RegisterBind binds this shutter to a parent, with a bi-directional shutdown signal
+func RegisterBind(parent *Shutter) Option {
+	return func(child *Shutter) {
+		parent.Bind(child)
+	}
+}
+
 // registers a function to be called on terminated
 func RegisterOnTerminated(f func(error)) Option {
 	return func(s *Shutter) {
@@ -173,4 +180,15 @@ func (s *Shutter) Err() error {
 	defer s.lock.Unlock()
 
 	return s.err
+}
+
+// Bind creates a bi-directional shutdown signal with another shutter
+func (s *Shutter) Bind(other *Shutter) {
+	s.OnTerminating(func(err error) {
+		other.Shutdown(err)
+	})
+
+	other.OnTerminating(func(err error) {
+		s.Shutdown(err)
+	})
 }

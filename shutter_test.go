@@ -216,3 +216,37 @@ func TestShutdownDuringLockedInit(t *testing.T) {
 	<-shutdownCalled
 	assert.Equal(t, -1, a)
 }
+
+func TestBindDownStreamShutdown(t *testing.T) {
+	a, b := 0, 0
+
+	p := New(RegisterOnTerminating(func(_ error) {
+		a++
+	}))
+	c := New(RegisterOnTerminating(func(_ error) {
+		b++
+	}))
+
+	p.Bind(c)
+	p.Shutdown(nil)
+
+	assert.Equal(t, 1, a)
+	assert.Equal(t, 1, b)
+}
+
+func TestBindUpStreamShutdown(t *testing.T) {
+	a, b := 0, 0
+
+	p := New(RegisterOnTerminating(func(_ error) {
+		a++
+	}))
+	c := New(RegisterOnTerminating(func(_ error) {
+		b++
+	}))
+
+	p.Bind(c)
+	c.Shutdown(nil)
+
+	assert.Equal(t, 1, a)
+	assert.Equal(t, 1, b)
+}
