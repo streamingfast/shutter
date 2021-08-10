@@ -1,4 +1,4 @@
-module github.com/dfuse-io/shutter
+module github.com/streamingfast/shutter
 
 require github.com/stretchr/testify v1.3.0
 
